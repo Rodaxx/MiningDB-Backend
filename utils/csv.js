@@ -1,7 +1,7 @@
 const fs = require('fs');
 const { poolPromise , sql } = require('../config_mssql');
 
-function leerCsv(filename){
+function readCsv(filename){
     const fileText = fs.readFileSync(filename, 'utf-8');
     
     const allLines = fileText.split(/\r\n|\r|\n/, -1);
@@ -14,7 +14,6 @@ function leerCsv(filename){
     for (let i = 1; i < allLines.length; i++){
         let obj = {};
         const data = allLines[i].split(';');
-        
         for (let j = 0; j < fieldNames.length; j++){
             const fieldName = fieldNames[j].toLowerCase();
             obj[fieldName] = data[j];
@@ -23,7 +22,7 @@ function leerCsv(filename){
     }
     return objList;
 }
-async function cargarDatos(){
+async function dataToDB(){
     try {
         for (let i = 0; i<objList.length; i++){
             const pool = await poolPromise;
@@ -50,4 +49,4 @@ async function cargarDatos(){
     }
 }
 
-cargarDatos(leerCsv('excel/ejemplo.csv'));
+readCsv(dataToDB('excel/ejemplo.csv'));
