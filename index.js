@@ -20,11 +20,6 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/login', login_routes);
 app.use('/users', users_routes);
 
-
-app.get('/', (req, res) => {
-  res.send('Backend MiningDB');
-});
-
 app.listen(port, () => {
   console.log(`Servidor iniciado!`);
 });
