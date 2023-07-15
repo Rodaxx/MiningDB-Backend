@@ -15,9 +15,18 @@ const { validateRoot, validateAdmin ,validateToken } = require('../middlewares/j
 
 /**
  * @swagger
+ * tags:
+ *   name: Root
+ *   description: Endpoints relacionados con la vista root
+ */
+
+/** CREACION DE USUARIOS */
+
+/**
+ * @swagger
  * /users/createAdmin:
  *   post:
- *     tags: [Usuarios]
+ *     tags: [Usuarios, Root]
  *     summary: Crear usuario con permisos de administrador (Se requiere acceso root).
  *     description: Permite a un usuario root crear administradores.
  *     security:
@@ -29,16 +38,16 @@ const { validateRoot, validateAdmin ,validateToken } = require('../middlewares/j
  *           schema:
  *             type: object
  *             properties:
- *               username:
+ *               email:
  *                 type: string
- *                 description: Nombre de usuario.
+ *                 description: Email.
  *               password:
  *                 type: string
  *                 description: Contraseña del usuario.
  *              
  *             example:
- *               username: username
- *               password: password
+ *               email: username@domain.com
+ *               password: 12345678
  *     responses:
  *       200:
  *         description: Creacion de usuario exitosa.
@@ -47,14 +56,14 @@ const { validateRoot, validateAdmin ,validateToken } = require('../middlewares/j
  */
 router.post("/createAdmin", validateRoot , async (req, res) => {
     try {
-        if (req.body.username && req.body.password){
+        if (req.body.email && req.body.password){
             const hashedPassword = await bcrypt.hash(req.body.password,12);
             const pool = await poolPromise;
             const result = await pool.request()
                 .input("admin",sql.Bit, 1)
-                .input("correo",sql.VarChar, req.body.username)
+                .input("correo",sql.VarChar, req.body.email)
                 .input("contraseña", sql.VarChar, hashedPassword)
-                .query("INSERT INTO usuario.usuario (admin, correo, contrasenia) VALUES (@admin, @correo, @contraseña)");
+                .query("INSERT INTO usuario.usuario (admin, correo, contraseña) VALUES (@admin, @correo, @contraseña)");
             return res.sendStatus(200);
         }
         else{
@@ -73,7 +82,7 @@ router.post("/createAdmin", validateRoot , async (req, res) => {
  * @swagger
  * /users/createGuest:
  *   post:
- *     tags: [Usuarios]
+ *     tags: [Usuarios, Root]
  *     summary: Crear usuario con permisos de invitado (Se requiere acceso de administrador).
  *     description: Permite a un usuario administrador crear invitados.
  *     security:
@@ -123,6 +132,8 @@ router.post("/createGuest", validateRoot , async (req, res) => {
     }
     return res.sendStatus(400)
 })
+
+/** PERMISOS DE USUARIOS */
 
 /**
  * @swagger
@@ -235,7 +246,7 @@ router.get("/getPermissions/:username?", validateToken, async (req, res) => {
  * @swagger
  * /users/addPermission:
  *   post:
- *     tags: [Usuarios]
+ *     tags: [Usuarios, Root]
  *     summary: Añade permisos sobre un rajo a un usuario.
  *     description: 
  *                 Le da permisos a un usuario sobre un rajo. <br>
@@ -297,7 +308,7 @@ router.post("/addPermission", validateToken, async (req, res) => {
             .query(`INSERT INTO COMBINACION.USUARIO_RAJO (id_rajo, id_usuario)
                     SELECT rajo.ID_RAJO, usuario.ID_USUARIO
                     FROM RAJO.RAJO as rajo
-                    JOIN USUARIO.USUARIO as usuario ON rajo.NOMBRE  = @rajo AND usuario.CORREO = @username
+                    JOIN USUARIO.USUARIO as usuario ON rajo.NOMBRE = @rajo AND usuario.CORREO = @username
                     WHERE NOT EXISTS (
                         SELECT 1
                         FROM COMBINACION.USUARIO_RAJO as ur
@@ -306,14 +317,13 @@ router.post("/addPermission", validateToken, async (req, res) => {
             return res.sendStatus(200);
         }
         else if (user_type == 'admin'){
-
             const getPermissions = await pool.request() //Valida los permisos del usuario sobre los rajos
-            .input('username', sql.VarChar, decoded.username)
-            .query(`SELECT rajos.ID_RAJO , rajos.NOMBRE  FROM USUARIO.USUARIO users 
-            INNER JOIN COMBINACION.USUARIO_RAJO permissions 
-            ON users.ID_USUARIO = permissions.ID_USUARIO 
-            INNER JOIN RAJO.RAJO rajos ON permissions.ID_RAJO = rajos.ID_RAJO 
-            WHERE users.CORREO = @username`);
+                .input('username', sql.VarChar, decoded.username)
+                .query(`SELECT rajos.ID_RAJO , rajos.NOMBRE  FROM USUARIO.USUARIO users 
+                INNER JOIN COMBINACION.USUARIO_RAJO permissions 
+                ON users.ID_USUARIO = permissions.ID_USUARIO 
+                INNER JOIN RAJO.RAJO rajos ON permissions.ID_RAJO = rajos.ID_RAJO 
+                WHERE users.CORREO = @username`);
         
             let havePermission = false; // Verifica si tiene permisos sobre el rajo al que se quiere dar permiso
             getPermissions.recordset.forEach(element => {
@@ -327,17 +337,17 @@ router.post("/addPermission", validateToken, async (req, res) => {
             }
 
             const addPermission = await pool.request()
-            .input('username', sql.VarChar, req.body.username)
-            .input('rajo', sql.VarChar, req.body.rajo)
-            .query(`INSERT INTO COMBINACION.USUARIO_RAJO (id_rajo, id_usuario)
-                    SELECT rajo.ID_RAJO, usuario.ID_USUARIO
-                    FROM RAJO.RAJO as rajo
-                    JOIN USUARIO.USUARIO as usuario ON rajo.NOMBRE  = @rajo AND usuario.CORREO = @username
-                    WHERE NOT EXISTS (
-                        SELECT 1
-                        FROM COMBINACION.USUARIO_RAJO as ur
-                        WHERE ur.id_rajo = rajo.ID_RAJO AND ur.id_usuario = usuario.ID_USUARIO
-                    );`);
+                .input('username', sql.VarChar, req.body.username)
+                .input('rajo', sql.VarChar, req.body.rajo)
+                .query(`INSERT INTO COMBINACION.USUARIO_RAJO (id_rajo, id_usuario)
+                        SELECT rajo.ID_RAJO, usuario.ID_USUARIO
+                        FROM RAJO.RAJO as rajo
+                        JOIN USUARIO.USUARIO as usuario ON rajo.NOMBRE  = @rajo AND usuario.CORREO = @username
+                        WHERE NOT EXISTS (
+                            SELECT 1
+                            FROM COMBINACION.USUARIO_RAJO as ur
+                            WHERE ur.id_rajo = rajo.ID_RAJO AND ur.id_usuario = usuario.ID_USUARIO
+                        );`);
             return res.sendStatus(200);
         }
         else{
@@ -349,6 +359,7 @@ router.post("/addPermission", validateToken, async (req, res) => {
     }
 })
 
+/** ELIMINAR USUARIOS */
 
 module.exports = router;
 

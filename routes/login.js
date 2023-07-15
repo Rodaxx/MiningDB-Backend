@@ -2,12 +2,14 @@
 const express = require('express');
 const router = express.Router();
 const dotenv = require('dotenv').config();
+const jwt = require('jsonwebtoken');
 const { poolPromise , sql } = require('../config_mssql');
 
 // Login
 const bcrypt = require('bcrypt');
 const { generateAccessToken, generatePasswordResetToken } = require('../utils/jwt');
 const { validateToken, validateAdmin, validateRoot } = require('../middlewares/jwt');
+const {generatePassword} = require('../utils/passwordGenerator')
 
 // Emails
 const nodemailer = require('nodemailer');
@@ -84,9 +86,8 @@ router.post("/", async (req, res) => {
                 return res.sendStatus(403);  
             }
             const userData = result.recordset[0];
-            
             // Validate password
-            if (bcrypt.compareSync(req.body.password, userData.CONTRASENIA)){
+            if (bcrypt.compareSync(req.body.password, userData.CONTRASEÑA)){
                 if (userData.ADMIN == 1){
                     const token = generateAccessToken('admin', req.body.email);
                     return res.status(200).json({
@@ -103,7 +104,8 @@ router.post("/", async (req, res) => {
                 }
             }
             else{ // Invalid password
-                return res.sendStatus(403);
+
+                return res.sendStatus(401);
             }
         }
         else{ //Faltan datos
@@ -132,15 +134,15 @@ router.post("/", async (req, res) => {
  *           schema:
  *             type: object
  *             properties:
- *               actual:
+ *               oldPassword:
  *                 type: string
  *                 description: Contraseña actual.
- *               new:
+ *               newPassword:
  *                 type: string
  *                 description: Contraseña nueva.
  *             example:
- *               actual: myactualpassword
- *               new: mynewpassword
+ *               oldPassword: myactualpassword
+ *               newPassword: mynewpassword
  *     responses:
  *       200:
  *         description: Cambio de contraseña exitoso.
@@ -151,7 +153,7 @@ router.post("/", async (req, res) => {
  */
 router.post("/changePassword", validateToken ,async (req, res) => {
     try{
-        if (!req.body.password_old && !req.body.password_new){
+        if (!req.body.oldPassword && !req.body.newPassword){
             return res.sendStatus(400);
         }
 
@@ -167,23 +169,24 @@ router.post("/changePassword", validateToken ,async (req, res) => {
         const pool = await poolPromise;
         const fetchPassword = await pool.request()
                 .input("correo", sql.VarChar, email)
-                .query("SELECT contrasenia FROM usuario.usuario WHERE correo = @correo");
+                .query("SELECT contraseña FROM usuario.usuario WHERE correo = @correo");
 
         if (fetchPassword.recordset.length == 0){
             return res.sendStatus(403);  
         }
-        const userData = fetchPassword.recordset[0];
-        if (bcrypt.compareSync(req.body.password, userData.CONTRASENIA)){
-            const hashedPassword = await bcrypt.hash(req.body.new_password,12);
+        const dbPassword = fetchPassword.recordset[0].contraseña;
+
+        if (bcrypt.compareSync(req.body.oldPassword, dbPassword)){
+            const hashedPassword = await bcrypt.hash(req.body.newPassword,12);
             const changePassword = await pool.request()
                     .input("password", sql.VarChar, hashedPassword)
                     .input("correo", sql.VarChar, email)
-                    .query("UPDATE USUARIO.USUARIO SET contrasenia = @password WHERE correo = @correo"); 
+                    .query("UPDATE USUARIO.USUARIO SET contraseña = @password WHERE correo = @correo"); 
             return res.sendStatus(200);
         }
         return res.sendStatus(403);   
     }
-    catch{ //Error ?
+    catch (err) { //Error ?
         return res.sendStatus(400);
     }
 
@@ -191,11 +194,11 @@ router.post("/changePassword", validateToken ,async (req, res) => {
 
 /**
  * @swagger
- * /login/generatePassworkToken:
+ * /login/generatePassword:
  *   post:
  *     tags: [Autenticación]
- *     summary: Genera un token que permite cambiar la contraseña.
- *     description: Genera un token que es enviado al correo del usuario y con el puede cambiar la contraseña.
+ *     summary: Genera una nueva contraseña
+ *     description: Genera una nueva contraseña que es enviada al correo del usuario.
  *     requestBody:
  *       required: true
  *       content:
@@ -203,51 +206,61 @@ router.post("/changePassword", validateToken ,async (req, res) => {
  *           schema:
  *             type: object
  *             properties:
- *               mail:
+ *               email:
  *                 type: string
  *                 description: Correo del usuario
  *             example:
- *               mail: "rodaxx30@outlook.com"
+ *               email: "username@domain.com"
  *     responses:
  *       200:
- *         description: Token enviado con exito.
+ *         description: Contraseña generada con exito y enviada al correo.
  *       400:
  *         description: No se ha podido enviar el correo.
  *        
  */
-router.post("/generatePasswordToken", async (req, res) => {
+router.post("/generatePassword", async (req, res) => {
     try{
-        if (!req.body.mail){
+        if (!req.body.email){
             return res.sendStatus(403);
         }
         const pool = await poolPromise;
         const searchMail = await pool.request()
-                .input("correo", sql.VarChar, req.body.mail)
+                .input("correo", sql.VarChar, req.body.email)
                 .query("SELECT correo FROM usuario.usuario WHERE correo = @correo");
-        
+
         
         if (searchMail.recordset.length == 0){
             return res.sendStatus(403);
         }
         
-        const token = generatePasswordResetToken(req.body.mail);
+        const newPassword = generatePassword(16);
+        
         let mailTransport = nodemailer.createTransport(mailConfig);
         const mailOptions = {
             from: process.env.MAIL_USER,
-            to: req.body.mail,
+            to: req.body.email,
             subject: 'Restablecimiento de contraseña',
-            text: `Token para restablecer contraseña (5m): ` + token
+            text: `Nueva contraseña: ` + newPassword
         };
         mailTransport.sendMail(mailOptions, function (error, info){
             if (error) {
+                console.log("Error al enviar correo de cambio de contraseña:", req.body.email)
+                console.log(error)
                 return res.sendStatus(400);
-            } else {
-                return res.sendStatus(200);
             }
+            console.log("Correo de restablecimiento de contraseña enviado con exito: ", req.body.email);
         })
+        
+        const hashedPassword = await bcrypt.hash(newPassword,12);
+
+        const updatePassword = await pool.request()
+            .input('password', sql.VarChar, hashedPassword)
+            .input('correo', sql.VarChar, req.body.email)
+            .query("UPDATE USUARIO.USUARIO SET contraseña = @password WHERE correo = @correo");
+        return res.sendStatus(200);
     }
     catch (error){ //Error ?
-        console.log(error);
+        console.log(error)
         return res.sendStatus(400);
     }
 
