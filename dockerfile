@@ -6,8 +6,8 @@ COPY . .
 
 RUN npm ci --omit=dev
 
-ENV PORT 3000
-
 EXPOSE 80
 
 CMD [ "node", "index.js" ]
+
+#
