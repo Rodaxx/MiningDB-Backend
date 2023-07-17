@@ -43,9 +43,13 @@ const { mailConfig } = require("../config_mail")
  *               password:
  *                 type: string
  *                 description: Contraseña.
+ *               remember: 
+ *                 type: bool
+ *                 description: Si es verdadero generara un token de mayor duracion.
  *             example:
  *               email: mail@domain.com
  *               password: pass1234
+ *               remember: false
  *     responses:
  *       200:
  *         description: Autenticación exitosa. Devuelve el tipo de usuario y el token de acceso.
@@ -67,10 +71,13 @@ const { mailConfig } = require("../config_mail")
  */
 router.post("/", async (req, res) => {
     try{
-        console.log("Login from:", req.body.email);
+        let remember = false
+        if (req.body.remember == true){
+            remember = true
+        }
         if (req.body.email != null && req.body.password != null){
             if (req.body.email == process.env.ROOT_USER && req.body.password == process.env.ROOT_PASSWORD){
-                const token = generateAccessToken('root', req.body.email);
+                const token = generateAccessToken('root', req.body.email, remember);
                 return res.status(200).json({
                     user_type: 'root',
                     token: token,
@@ -88,15 +95,16 @@ router.post("/", async (req, res) => {
             const userData = result.recordset[0];
             // Validate password
             if (bcrypt.compareSync(req.body.password, userData.CONTRASEÑA)){
+                console.log("Login from:", req.body.email);
                 if (userData.ADMIN == 1){
-                    const token = generateAccessToken('admin', req.body.email);
+                    const token = generateAccessToken('admin', req.body.email, remember);
                     return res.status(200).json({
                         user_type: 'admin',
                         token: token,
                     })
                 }
                 else{
-                    const token = generateAccessToken('guest', req.body.email);
+                    const token = generateAccessToken('guest', req.body.email, remember);
                     return res.status(200).json({
                         user_type: 'guest',
                         token: token,
@@ -104,7 +112,6 @@ router.post("/", async (req, res) => {
                 }
             }
             else{ // Invalid password
-
                 return res.sendStatus(401);
             }
         }
@@ -112,7 +119,8 @@ router.post("/", async (req, res) => {
             return res.sendStatus(400);
         }    
     }
-    catch{ //Error ?
+    catch (err){ //Error ?
+        console.log(err)
         return res.sendStatus(400);
     }
 
