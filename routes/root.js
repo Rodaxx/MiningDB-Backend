@@ -17,9 +17,6 @@ const { mailConfig } = require("../config_mail")
  *   description: Endpoints relacionados con la vista root
  */
 
-/// TODO: ELIMINAR PERMISOS
-
-
 /**
  * @swagger
  * /root/getUsers:
@@ -202,6 +199,63 @@ router.post("/deleteUser", validateRoot, async (req, res) => {
 
 /**
  * @swagger
+ * /root/getPermissions:
+ *   post:
+ *     tags: [Root]
+ *     summary: Obtener permisos de un usuario.
+ *     description: Permite a un root obtener los permisos de un usuario sobre todos los rajos.
+ *     security:
+ *        - Authorization: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 description: Email del usuario del que se quiere obtener permisos.
+ *             example:
+ *               email: username@domain.com
+ *     responses:
+ *       200:
+ *         description: OK.
+ *       400:
+ *         description: Faltan datos o solicitud invalida. 
+ */
+router.post("/getPermissions", validateRoot , async (req, res) => {
+    try {
+        if (!req.body.email){
+            return res.sendStatus(400);
+        }
+        if (req.body.email == process.env.ROOT_USER){
+            return res.sendStatus(400);
+        }
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .input('email', sql.VarChar, req.body.email)
+            .query(`EXECUTE USUARIO.GET_PERMISSIONS @email`);
+
+        let rajos = []
+        result.recordset.forEach(rajo => {
+            rajoJson = {
+                Rajo: rajo.NOMBRE,
+                Permiso: rajo.Permiso,
+            }
+            rajos.push(rajoJson);
+        });
+
+        return res.json(rajos).status(200);
+    }
+    catch (err){
+        console.error(err);
+    }
+    return res.sendStatus(400)
+})
+
+/**
+ * @swagger
  * /root/addPermission:
  *   post:
  *     tags: [Root]
@@ -330,7 +384,7 @@ router.post("/deletePermission", validateRoot, async (req, res) => {
 
 /**
  * @swagger
- * /users/changeUserType:
+ * /root/changeUserType:
  *   post:
  *     tags: [Root]
  *     summary: Permite cambiar el tipo de usuario (Administrador y visita).
