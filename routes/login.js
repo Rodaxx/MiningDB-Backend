@@ -78,6 +78,7 @@ router.post("/", async (req, res) => {
         if (req.body.email != null && req.body.password != null){
             if (req.body.email == process.env.ROOT_USER && req.body.password == process.env.ROOT_PASSWORD){
                 const token = generateAccessToken('root', req.body.email, remember);
+                console.log("Login from:", req.body.email);
                 return res.status(200).json({
                     user_type: 'root',
                     token: token,
