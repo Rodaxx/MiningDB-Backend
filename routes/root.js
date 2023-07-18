@@ -17,6 +17,54 @@ const { mailConfig } = require("../config_mail")
  *   description: Endpoints relacionados con la vista root
  */
 
+/// TODO: ELIMINAR PERMISOS
+
+
+/**
+ * @swagger
+ * /root/getUsers:
+ *   post:
+ *     tags: [Root]
+ *     summary: Obtener usuarios.
+ *     description: Permite a un root obtener la informacion de todos los usuarios del sistema.
+ *     security:
+ *        - Authorization: []
+ *     responses:
+ *       200:
+ *         description: OK.
+ */
+router.post("/getUsers", validateRoot , async (req, res) => {
+    try {
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .query("SELECT id, correo, admin FROM usuario.usuario");
+
+        let users = [];
+        result.recordset.forEach(user => {
+            let type;
+            if (user.admin){
+                type = 'Administrador';
+            }
+            else{
+                type = 'Visita'
+            }
+
+            userJson = {
+                id: user.id,
+                correo: user.correo,
+                tipo: type
+            }
+            users.push(userJson);
+        });
+
+        return res.json(users).status(200);
+    }
+    catch (err){
+        console.error(err);
+    }
+    return res.sendStatus(400)
+})
+
 /**
  * @swagger
  * /root/createUser:
@@ -50,12 +98,21 @@ const { mailConfig } = require("../config_mail")
  *         description: Creacion de usuario exitosa.
  *       400:
  *         description: Solicitud invalida, faltan datos o error de sintaxis.
+ *       403:
+ *         description: Usuario ya existe.
  */
 router.post("/createUser", validateRoot , async (req, res) => {
     try {
         if (req.body.email){
-            const password = generatePassword(12);
+            const pool = await poolPromise;
+            const user = await pool.request()
+                .input("email",sql.VarChar, req.body.email)
+                .query("SELECT * FROM usuario.usuario WHERE correo = @email");
+            if (user.recordset.length == 1){
+                return res.sendStatus(403);
+            }
 
+            const password = generatePassword(12);
             let mailTransport = nodemailer.createTransport(mailConfig);
             const mailOptions = {
                 from: process.env.MAIL_USER,
@@ -76,7 +133,6 @@ router.post("/createUser", validateRoot , async (req, res) => {
             }
 
             const hashedPassword = await bcrypt.hash(password,12);
-            const pool = await poolPromise;
             const result = await pool.request()
                 .input("admin",sql.Bit, type)
                 .input("correo",sql.VarChar, req.body.email)
@@ -94,6 +150,54 @@ router.post("/createUser", validateRoot , async (req, res) => {
         console.error(err);
     }
     return res.sendStatus(400)
+})
+
+/**
+ * @swagger
+ * /root/deleteUser:
+ *   post:
+ *     tags: [Root]
+ *     summary: Elimina a un usuario.
+ *     description: Elimina a un usuario del sistema.
+ *     security:
+ *        - Authorization: [] 
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 description: Email del usuario a eliminar.
+ *             example:
+ *               email: username@domain.com
+ *     responses:
+ *       200:
+ *         description: Eliminacion de usuario correcta.
+ *       400:
+ *         description: Solicitud invalida, faltan datos o error de sintaxis.
+ */
+router.post("/deleteUser", validateRoot, async (req, res) => {
+    try{
+        if (!req.body.email){
+            return res.sendStatus(400);
+        }
+        if (req.body.email == process.env.ROOT_USER){
+            return res.sendStatus(400); // El usuario root ya tiene permiso sobre todos los rajos.
+        }
+
+        const pool = await poolPromise;
+        const deleteUser = await pool.request()
+            .input('email', sql.VarChar, req.body.email)
+            .query(`DELETE FROM usuario.usuario WHERE email = @email`);
+        return res.sendStatus(200);
+    }
+    catch (error){
+        console.log(error)
+        return res.sendStatus(400)
+    }
 })
 
 /**
@@ -162,54 +266,6 @@ router.post("/addPermission", validateRoot, async (req, res) => {
 
 /**
  * @swagger
- * /root/deleteUser:
- *   post:
- *     tags: [Root]
- *     summary: Elimina a un usuario.
- *     description: Elimina a un usuario del sistema.
- *     security:
- *        - Authorization: [] 
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               email:
- *                 type: string
- *                 description: Email del usuario a eliminar.
- *             example:
- *               email: username@domain.com
- *     responses:
- *       200:
- *         description: Eliminacion de usuario correcta.
- *       400:
- *         description: Solicitud invalida, faltan datos o error de sintaxis.
- */
-router.post("/deleteUser", validateRoot, async (req, res) => {
-    try{
-        if (!req.body.email){
-            return res.sendStatus(400);
-        }
-        if (req.body.email == process.env.ROOT_USER){
-            return res.sendStatus(400); // El usuario root ya tiene permiso sobre todos los rajos.
-        }
-
-        const pool = await poolPromise;
-        const deleteUser = await pool.request()
-            .input('email', sql.VarChar, req.body.email)
-            .query(`DELETE FROM usuario.usuario WHERE email = @email`);
-        return res.sendStatus(200);
-    }
-    catch (error){
-        console.log(error)
-        return res.sendStatus(400)
-    }
-})
-
-/**
- * @swagger
  * /users/changeUserType:
  *   post:
  *     tags: [Root]
@@ -270,3 +326,6 @@ router.post("/changeUserType", validateRoot, async (req, res) => {
         console.log(error)
     }
 })
+
+
+module.exports = router
