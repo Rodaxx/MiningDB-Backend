@@ -9,7 +9,7 @@ const generateAccessToken = (userType, email, remember) => {
             if (remember = true){
                 expTime = process.env.TOKEN_REMEMBER_DURATION;
             }
-            return jwt.sign(
+            return "Bearer " + jwt.sign(
                 {
                     user_type: userType.toLowerCase(),
                     email: email,
