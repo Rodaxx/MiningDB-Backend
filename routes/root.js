@@ -254,6 +254,8 @@ router.post("/getPermissions", validateRoot , async (req, res) => {
     return res.sendStatus(400)
 })
 
+
+
 /**
  * @swagger
  * /root/addPermission:
@@ -315,16 +317,16 @@ router.post("/addPermission", validateRoot, async (req, res) => {
     }
     catch (error){
         console.log(error)
+        return res.sendStatus(400);
     }
 })
 
 /**
  * @swagger
- * /root/deletePermission:
+ * /root/deleteAllPermissions:
  *   post:
  *     tags: [Root]
- *     summary: Elimina permisos sobre un rajo a un usuario.
- *     description: Permite a un usuario ROOT eliminar permisos a un usuario sobre un rajo.
+ *     summary: Elimina todos los permisos de un usuario.
  *     security:
  *        - Authorization: [] 
  *     requestBody:
@@ -336,26 +338,18 @@ router.post("/addPermission", validateRoot, async (req, res) => {
  *             properties:
  *               email:
  *                 type: string
- *                 description: Email del usuario al que se le eliminar un permiso.
- *               rajo:
- *                 type: string
- *                 description: Rajo al cual se le eliminar el permiso
+ *                 description: Email del usuario.
  *             example:
- *               email: rodrigo.vega@alumnos.ucn.cl
- *               rajo: Tesoro
+ *               email: diego.gonzalez07@alumnos.ucn.cl
  *     responses:
  *       200:
- *         description: Eliminacion de permiso exitosa o el permiso no existia.
+ *         description: Eliminacion correcta.
  *       400:
  *         description: Solicitud invalida, faltan datos o error de sintaxis.
- *       401:
- *         description: No proporciono metodo de autenticacion.
- *       403:
- *         description: No se tienen permisos para realizar la solicitud.
  */
-router.post("/deletePermission", validateRoot, async (req, res) => {
+router.post("/deleteAllPermissions", validateRoot, async (req, res) => {
     try{
-        if (!req.body.email && !req.body.rajo){
+        if (!req.body.email){
             return res.sendStatus(400);
         }
         if (req.body.email == process.env.ROOT_USER){
@@ -363,22 +357,18 @@ router.post("/deletePermission", validateRoot, async (req, res) => {
         }
 
         const pool = await poolPromise;
-        const addPermission = await pool.request()
+        const deletePermissions = await pool.request()
         .input('email', sql.VarChar, req.body.email)
         .input('rajo', sql.VarChar, req.body.rajo)
-        .query(`DELETE FROM usuario.permiso (id_rajo, id_usuario)
-                SELECT rajo.ID_RAJO, usuario.ID_USUARIO
-                FROM RAJO.RAJO as rajo
-                JOIN USUARIO.USUARIO as usuario ON rajo.NOMBRE = @rajo AND usuario.CORREO = @username
-                WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM COMBINACION.USUARIO_RAJO as ur
-                    WHERE ur.id_rajo = rajo.ID_RAJO AND ur.id_usuario = usuario.ID_USUARIO
-                );`);
+        .query(`DELETE p
+                FROM usuario.permiso AS p
+                JOIN usuario.usuario AS u ON p.id_usuario = u.id
+                WHERE u.correo = @email;`);
         return res.sendStatus(200);
     }
     catch (error){
         console.log(error)
+        return res.sendStatus(400);
     }
 })
 
