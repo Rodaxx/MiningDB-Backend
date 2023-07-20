@@ -14,191 +14,223 @@ const { mailConfig } = require("../config_mail")
  * @swagger
  * tags:
  *   name: Usuarios
- *   description: Endpoints relacionados con la gestion de usuarios
+ *   description: Endpoints relacionados con todos los usuarios
  */
-
-/** ADMIN */
 
 /**
  * @swagger
- * /users/createGuest:
+ * /users/getReport:
  *   post:
  *     tags: [Usuarios]
- *     summary: Crear usuario con permisos de invitado (Se requiere acceso de administrador).
- *     description: Permite a un usuario administrador crear invitados.
+ *     summary: Obtener reporte mas nuevo.
  *     security:
- *        - Authorization: [] 
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               username:
- *                 type: string
- *                 description: Nombre de usuario.
- *               password:
- *                 type: string
- *                 description: Contraseña del usuario.
- *             example:
- *               username: username
- *               password: password
+ *        - Authorization: []
  *     responses:
  *       200:
  *         description: Creacion de usuario exitosa.
  *       400:
  *         description: Solicitud invalida, faltan datos o error de sintaxis.
  */
-router.post("/createGuest", validateAdmin , async (req, res) => {
-    try {
-        if (req.body.username && req.body.password){
-
-            const password = generatePassword(12);
-            let mailTransport = nodemailer.createTransport(mailConfig);
-            const mailOptions = {
-                from: process.env.MAIL_USER,
-                to: req.body.email,
-                subject: 'Tu contraseña para MiningDB',
-                text: `Tu contraseña para MiningDB es: ` + password
-            };
-            mailTransport.sendMail(mailOptions, function (error, info){
-                if (error) {
-                    console.log("Error al enviar correo de contraseña de nuevo usuario: ", req.body.email)
-                    return res.sendStatus(400);
-                }
-            })
-
-            const hashedPassword = await bcrypt.hash(req.body.password,12);
-            const pool = await poolPromise;
-            const result = await pool.request()
-                .input("admin",sql.Bit, 0)
-                .input("correo",sql.VarChar, req.body.username)
-                .input("contraseña", sql.VarChar, hashedPassword)
-                .query("INSERT INTO usuario.usuario (admin, correo, contrasenia) VALUES (@admin, @correo, @contraseña)");
-            return res.sendStatus(200);
-        }
-        else{
-            return res.status(400).json({
-                message: "Datos insuficientes",
-            })
-        }
-    }
-    catch (err){
-        console.error(err);
-    }
-    return res.sendStatus(400)
-})
-
-/** ADMIN Y GUEST */
-
-/**
- * @swagger
- * /users/getPermissions/{username}:
- *   get:
- *     tags: [Usuarios]
- *     summary: Retorna los permisos de un usuario.
- *     description: 
- *                  Retorna los permisos del usuario que solicito la request. <br>
- *                  En caso de necesitar obtener permisos de otro usuario, este se puede pasar como parametro. <br>
- *                  (Solo para admins y root)
- *     security:
- *        - Authorization: []
- *     parameters:
- *       - in: path
- *         name: username
- *         schema:
- *           type: string
- *         required: false
- *         allowEmptyValue: true
- *         description: Nombre de usuario (opcional, si no se proporciona, se devolverá los permisos del usuario que hizo la solicitud)    
- * 
- *     responses:
- *       200:
- *         description: OK
- *       400:
- *         description: Solicitud o sintaxis invalida.
- *       403:
- *         description: No tienes permisos para ver los permisos del usuario.
- *       404:
- *         description: Usuario solicitado no encontrado
- */
-router.get("/getPermissions/:username?", validateToken, async (req, res) => {
-    try {
+router.post("/getReport", validateToken, async (req, res) => {
+    try {  
+        let reporte = [];
+        
         const token = req.headers.authorization;
         const decoded = jwt.verify(token.split(" ")[1], process.env.TOKEN_SECRET);
+        const admin_email = decoded.email;
+
         const pool = await poolPromise;
 
-        let username;
-        let user_type;
-        console.log(req.params.username);
-        if (req.params.username){ // Revisar si se esta preguntando por un usuario distinto a uno mismo
-            if (decoded.user_type == 'admin' || decoded.user_type == 'root'){ // Solo root y admin pueden ver los permisos de otros usuarios
-                username = req.params.username;
-                if (username == process.env.ROOT_USER){ // Enviar tipo de usuario root
-                    user_type = 'root';
+        const getRajos = await pool.request()
+            .input('email', sql.VarChar, admin_email)
+            .query(`SELECT R.NOMBRE
+            FROM USUARIO.PERMISO PER
+            INNER JOIN USUARIO.USUARIO U
+            ON U.ID=PER.ID_USUARIO 
+            INNER JOIN RAJO.RAJO R
+            ON R.ID_RAJO=PER.ID_RAJO
+            WHERE U.CORREO LIKE @email`);
+        const rajos = getRajos.recordset;
+
+        for (let i = 0; i < rajos.length; i++){
+            let reporte_rajo = {
+                rajo: rajos[i].NOMBRE,
+                DiarioReal: 0,
+                DiarioPlan: 0,
+                KPI: 0,
+                SemanalISOReal: 0,
+                SemanalISOPlan: 0,
+                KPI2: 0,
+                SemanalReal: 0,
+                SemanalPlan: 0,
+                KPI3: 0,
+                MensualReal: 0,
+                MensualPlan: 0,
+                KPI4: 0,
+                AnualReal: 0,
+                AnualPlan: 0,
+                KPI5: 0,
+                fases: []
+            }
+
+            const getFasesByRajo = await pool.request()
+            .input("rajo", sql.VarChar, rajos[i].NOMBRE)
+            .query(`SELECT Z.ZONA 'Zona',R.NOMBRE
+                    FROM COMBINACION.ZONA_RAJO ZR
+                    INNER JOIN ZONA.ZONA Z
+                    ON Z.ID_ZONA=ZR.ID_ZONA 
+                    INNER JOIN RAJO.RAJO  R
+                    ON R.ID_RAJO=ZR.ID_RAJO
+                    WHERE (Z.ZONA LIKE '%FASE%' OR Z.ZONA LIKE '%F0%') AND (R.NOMBRE LIKE @rajo)`);
+            const fases = getFasesByRajo.recordset;
+            for (let j = 0; j < fases.length; j++){
+                let reporte_fase = {
+                        fase: fases[j].Zona,
+                        DiarioReal: 0,
+                        DiarioPlan: 0,
+                        KPI: 0,
+                        SemanalISOReal: 0,
+                        SemanalISOPlan: 0,
+                        KPI2: 0,
+                        SemanalReal: 0,
+                        SemanalPlan: 0,
+                        KPI3: 0,
+                        MensualReal: 0,
+                        MensualPlan: 0,
+                        KPI4: 0,
+                        AnualReal: 0,
+                        AnualPlan: 0,
+                        KPI5: 0,
+                        flotas: []
                 }
-                else{  //Buscar si el usuario solicitado es admin
-                    const getUserType = await pool.request()
-                        .input('username', sql.VarChar, username)
-                        .query('SELECT ADMIN from USUARIO.USUARIO WHERE CORREO = @username');
+                reporte_rajo.fases.push(reporte_fase);
+            }
+            reporte.push(reporte_rajo);
+        }
+        
+        const maxDate = await pool.request()
+            .query(`SELECT MAX(FECHA) 'MAXIMO'
+            FROM CICLO.CICLO`);
+        const date = maxDate.recordset[0].MAXIMO;
+
+        
+        const dailyReport = await pool.request()
+            .input("email",sql.VarChar, admin_email)
+            .input('fecha', sql.Date, date)
+            .query(`EXECUTE [PLAN].GET_REPORTE_DIARIO_FASE @fecha, @email`);
+        for (let i = 0; i<dailyReport.recordset.length; i++){
+            let rajo = dailyReport.recordset[i].NOMBRE;
+            let fase = dailyReport.recordset[i].ZONA;
+            let extraccion = dailyReport.recordset[i].Extracción / 1000;
+            extraccion = parseFloat(extraccion.toFixed(3));
+            for (let j = 0; j<reporte.length; j++){
+                if (reporte[j].rajo == rajo){
+                    reporte[j].DiarioReal += extraccion;
+                    for (let k = 0; k<reporte[j].fases.length; k++){
+                        if (reporte[j].fases[k].fase == fase){
+                            reporte[j].fases[k].DiarioReal = extraccion;
+                            break
+                        }
+                    }
+                }
                 
-                    if (getUserType.recordset.length == 0){
-                        return res.sendStatus(404);
-                    }
-                    if (getUserType.recordset[0].ADMIN == true){
-                        user_type = 'admin';
-                    }
-                    else{
-                        user_type = 'guest';
+            }
+        }
+
+        const semIsoReport = await pool.request()
+            .input("email",sql.VarChar, admin_email)
+            .input('fecha', sql.Date, date)
+            .query(`EXECUTE [PLAN].GET_REPORTE_SEMANAL_ISO_FASE @fecha, @email`);
+        for (let i = 0; i<semIsoReport.recordset.length; i++){
+            let rajo = semIsoReport.recordset[i].NOMBRE;
+            let fase = semIsoReport.recordset[i].ZONA;
+            let extraccion = semIsoReport.recordset[i].Extracción / 1000;
+            extraccion = parseFloat(extraccion.toFixed(3));
+            for (let j = 0; j<reporte.length; j++){
+                if (reporte[j].rajo == rajo){
+                    reporte[j].SemanalISOReal += extraccion;
+                    for (let k = 0; k<reporte[j].fases.length; k++){
+                        if (reporte[j].fases[k].fase == fase){
+                            reporte[j].fases[k].SemanalISOReal = extraccion;
+                            break
+                        }
                     }
                 }
             }
-            else{
-                return res.sendStatus(403);
+        }
+
+        const semMovilReport = await pool.request()
+            .input("email",sql.VarChar, admin_email)
+            .input('fecha', sql.Date, date)
+            .query(`EXECUTE [PLAN].GET_REPORTE_SEMANAL_MOVIL_FASE @fecha, @email`);
+        for (let i = 0; i<semMovilReport.recordset.length; i++){
+            let rajo = semMovilReport.recordset[i].Rajo;
+            let fase = semMovilReport.recordset[i].ZONA;
+            let extraccion = semMovilReport.recordset[i].Extracción / 1000;
+            extraccion = parseFloat(extraccion.toFixed(3));
+            for (let j = 0; j<reporte.length; j++){
+                if (reporte[j].rajo == rajo){
+                    reporte[j].SemanalReal += extraccion;
+                    for (let k = 0; k<reporte[j].fases.length; k++){
+                        if (reporte[j].fases[k].fase == fase){
+                            reporte[j].fases[k].SemanalReal = extraccion;
+                            break
+                        }
+                    }
+                }
             }
         }
-        else{ // Devolver los permisos del usuario que hizo la solicitud
-            username = decoded.username;
-            user_type = decoded.user_type;
+
+        const monthlyReport = await pool.request()
+            .input("email",sql.VarChar, admin_email)
+            .input('fecha', sql.Date, date)
+            .query(`EXECUTE [PLAN].GET_REPORTE_MENSUAL_FASE @fecha, @email`);
+        for (let i = 0; i<monthlyReport.recordset.length; i++){
+            let rajo = monthlyReport.recordset[i].Rajo;
+            let fase = monthlyReport.recordset[i].ZONA;
+            let extraccion = monthlyReport.recordset[i].Extracción / 1000;
+            extraccion = parseFloat(extraccion.toFixed(3));
+            for (let j = 0; j<reporte.length; j++){
+                if (reporte[j].rajo == rajo){
+                    reporte[j].MensualReal += extraccion;
+                    for (let k = 0; k<reporte[j].fases.length; k++){
+                        if (reporte[j].fases[k].fase == fase){
+                            reporte[j].fases[k].MensualReal = extraccion;
+                            break
+                        }
+                    }
+                }
+            }
         }
 
-        let getPermissions;
-        if (user_type == 'root'){
-            getPermissions = await pool.request()
-            .input('username', sql.VarChar, username)
-            .query(`SELECT ID_RAJO , NOMBRE FROM RAJO.RAJO`);
+        const anualReport = await pool.request()
+            .input("email",sql.VarChar, admin_email)
+            .input('fecha', sql.Date, date)
+            .query(`EXECUTE [PLAN].GET_REPORTE_ANUAL_FASE @fecha, @email`);
+        for (let i = 0; i<anualReport.recordset.length; i++){
+            let rajo = anualReport.recordset[i].Rajo;
+            let fase = anualReport.recordset[i].ZONA;
+            let extraccion = anualReport.recordset[i].Extracción / 1000;
+            extraccion = parseFloat(extraccion.toFixed(3));
+            for (let j = 0; j<reporte.length; j++){
+                if (reporte[j].rajo == rajo){
+                    reporte[j].AnualReal += extraccion;
+                    for (let k = 0; k<reporte[j].fases.length; k++){
+                        if (reporte[j].fases[k].fase == fase){
+                            reporte[j].fases[k].AnualReal = extraccion;
+                            break
+                        }
+                    }
+                }
+            }
         }
-        else{
-            getPermissions = await pool.request()
-            .input('username', sql.VarChar, username)
-            .query(`SELECT rajos.ID_RAJO , rajos.NOMBRE  FROM USUARIO.USUARIO users 
-            INNER JOIN COMBINACION.USUARIO_RAJO permissions 
-            ON users.ID_USUARIO = permissions.ID_USUARIO 
-            INNER JOIN RAJO.RAJO rajos ON permissions.ID_RAJO = rajos.ID_RAJO 
-            WHERE users.CORREO = @username`);
-        }
-       
-        let res_json = {
-            user_type: user_type,
-            rajos: [],
-        };
-
-        for (const element of getPermissions.recordset) {
-            const rajo = {
-                id: element.ID_RAJO,
-                nombre: element.NOMBRE,
-            };
-            res_json.rajos.push(rajo);
-        };
-        return res.status(200).json(res_json);              
+        return res.json(reporte).status(200);
     }
     catch (err){
-        console.error(err);
+        console.log(err);
     }
     return res.sendStatus(400)
 })
-
 
 module.exports = router;
 

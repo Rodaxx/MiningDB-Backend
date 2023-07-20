@@ -2,6 +2,7 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const router = express.Router();
+const validator = require('validator');
 
 const {generatePassword} = require('../utils/passwordGenerator')
 const { poolPromise , sql } = require('../config_mssql');
@@ -9,6 +10,10 @@ const { validateRoot, validateAdmin ,validateToken } = require('../middlewares/j
 
 const nodemailer = require('nodemailer');
 const { mailConfig } = require("../config_mail")
+
+function sendMail(mailTransport, mailOptions){
+    return mailTransport.sendMail(mailOptions);
+}
 
 /**
  * @swagger
@@ -101,6 +106,9 @@ router.post("/getUsers", validateRoot , async (req, res) => {
 router.post("/createUser", validateRoot , async (req, res) => {
     try {
         if (req.body.email){
+            if (!validator.isEmail(req.body.email)){
+                return res.sendStatus(400);
+            }
             const pool = await poolPromise;
             const user = await pool.request()
                 .input("email",sql.VarChar, req.body.email)
@@ -117,12 +125,14 @@ router.post("/createUser", validateRoot , async (req, res) => {
                 subject: 'Tu contraseña para MiningDB',
                 text: `Tu contraseña para MiningDB es: ` + password
             };
-            mailTransport.sendMail(mailOptions, function (error, info){
-                if (error) {
-                    console.log("Error al enviar correo de contraseña de nuevo usuario: ", req.body.email)
-                    return res.sendStatus(400);
-                }
-            })
+
+            try{
+                await sendMail(mailTransport,mailOptions);
+            }
+            catch{
+                return res.sendStatus(500);
+            }
+           
 
             let type = 0;
             if (req.body.type == 'admin'){
@@ -145,8 +155,8 @@ router.post("/createUser", validateRoot , async (req, res) => {
     }
     catch (err){
         console.error(err);
+        return res.sendStatus(500)
     }
-    return res.sendStatus(400)
 })
 
 /**
@@ -188,7 +198,7 @@ router.post("/deleteUser", validateRoot, async (req, res) => {
         const pool = await poolPromise;
         const deleteUser = await pool.request()
             .input('email', sql.VarChar, req.body.email)
-            .query(`DELETE FROM usuario.usuario WHERE email = @email`);
+            .query(`DELETE FROM usuario.usuario WHERE correo = @email`);
         return res.sendStatus(200);
     }
     catch (error){
@@ -254,8 +264,6 @@ router.post("/getPermissions", validateRoot , async (req, res) => {
     return res.sendStatus(400)
 })
 
-
-
 /**
  * @swagger
  * /root/addPermission:
@@ -299,20 +307,11 @@ router.post("/addPermission", validateRoot, async (req, res) => {
         if (req.body.email == process.env.ROOT_USER){
             return res.sendStatus(200); // El usuario root ya tiene permiso sobre todos los rajos.
         }
-
         const pool = await poolPromise;
         const addPermission = await pool.request()
         .input('email', sql.VarChar, req.body.email)
         .input('rajo', sql.VarChar, req.body.rajo)
-        .query(`INSERT INTO COMBINACION.USUARIO_RAJO (id_rajo, id_usuario)
-                SELECT rajo.ID_RAJO, usuario.ID_USUARIO
-                FROM RAJO.RAJO as rajo
-                JOIN USUARIO.USUARIO as usuario ON rajo.NOMBRE = @rajo AND usuario.CORREO = @username
-                WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM COMBINACION.USUARIO_RAJO as ur
-                    WHERE ur.id_rajo = rajo.ID_RAJO AND ur.id_usuario = usuario.ID_USUARIO
-                );`);
+        .query(`EXECUTE USUARIO.SP_INSERT_PERMISO_FULL @email,@rajo`);
         return res.sendStatus(200);
     }
     catch (error){
@@ -323,7 +322,7 @@ router.post("/addPermission", validateRoot, async (req, res) => {
 
 /**
  * @swagger
- * /root/deleteAllPermissions:
+ * /root//deleteAllPermissions:
  *   post:
  *     tags: [Root]
  *     summary: Elimina todos los permisos de un usuario.
@@ -360,10 +359,7 @@ router.post("/deleteAllPermissions", validateRoot, async (req, res) => {
         const deletePermissions = await pool.request()
         .input('email', sql.VarChar, req.body.email)
         .input('rajo', sql.VarChar, req.body.rajo)
-        .query(`DELETE p
-                FROM usuario.permiso AS p
-                JOIN usuario.usuario AS u ON p.id_usuario = u.id
-                WHERE u.correo = @email;`);
+        .query(`EXECUTE USUARIO.DELETE_PERMISOS @email`);
         return res.sendStatus(200);
     }
     catch (error){
@@ -434,6 +430,5 @@ router.post("/changeUserType", validateRoot, async (req, res) => {
         console.log(error)
     }
 })
-
 
 module.exports = router
