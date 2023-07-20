@@ -1,0 +1,32 @@
+version: '3'
+services:
+  miningdb-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: MiningDB-Backend
+    ports:
+      - 3080:80
+      - 3021:21
+    environment:
+      #Database configs
+       - DB_HOST=
+       - DB_USERNAME=SA
+       - DB_PASSWORD=
+       - DB_DATABASE=master
+      #Root admin configs
+       - ROOT_USER=admin
+       - ROOT_PASSWORD=admin
+      #JSON Web Token Secret
+       - TOKEN_SECRET=
+       - TOKEN_DEFAULT_DURATION=1h
+       - TOKEN_REMEMBER_DURATION=7 days
+      #Email configure
+       - MAIL_HOST=
+       - MAIL_PORT=
+       - MAIL_USER=
+       - MAIL_PASSWORD=
+      #FTP Configuration
+       - FTP_ENABLED=true # true or false
+       - FTP_USER=admin
+       - FTP_PASSWORD=admin
